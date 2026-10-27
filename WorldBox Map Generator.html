@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>WorldBox Map Generator</title>
+<style>
+:root{--bg:#f4f5f7;--fg:#1c2230;--card:#fff;--mut:#667085;--ac:#2f6fe0;--ln:#d9dde5;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#12151c;--fg:#e8ebf2;--card:#1b2029;--mut:#98a2b3;--ac:#6ea0ff;--ln:#2b3340}}
+:root[data-theme="dark"]{--bg:#12151c;--fg:#e8ebf2;--card:#1b2029;--mut:#98a2b3;--ac:#6ea0ff;--ln:#2b3340}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.4 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;padding:12px}
+h1{font-size:19px;margin:4px 0 10px}
+.cv{background:var(--card);border:1px solid var(--ln);border-radius:10px;padding:6px;overflow:auto;max-height:78vh}
+.sw2{display:grid;grid-template-columns:repeat(auto-fill,minmax(38px,1fr));gap:6px;padding:8px 0}.sw2 button{height:32px;padding:0;border:2px solid var(--ln)}.sw2 button.on{border-color:var(--fg);outline:2px solid var(--ac)}
+canvas{display:block;width:100%;height:auto;image-rendering:pixelated;background:var(--ln);border-radius:6px}
+.bar{display:flex;gap:8px;margin:10px 0;flex-wrap:wrap}
+button{font:inherit;padding:9px 14px;border-radius:8px;border:1px solid var(--ln);background:var(--card);color:var(--fg);cursor:pointer}
+button.p{background:var(--ac);color:#fff;border-color:var(--ac);font-weight:600;flex:1}
+button:disabled{opacity:.5}
+progress{width:100%;height:6px}
+#st{font-size:13px;color:var(--mut);margin:4px 0 8px}
+details{background:var(--card);border:1px solid var(--ln);border-radius:10px;margin:8px 0;padding:0 12px}
+summary{padding:11px 0;font-weight:600;cursor:pointer}
+.row{display:grid;grid-template-columns:1fr 1.4fr 62px;gap:8px;align-items:center;padding:4px 0}
+.row label{font-size:13px}
+.row input[type=number],.num{width:100%;font:inherit;padding:4px;border:1px solid var(--ln);border-radius:6px;background:var(--bg);color:var(--fg)}
+.row input[type=range]{width:100%;accent-color:var(--ac)}
+.cks{display:grid;grid-template-columns:1fr 1fr;gap:4px 10px;padding:4px 0 10px}
+.cks label{font-size:14px;display:flex;gap:6px;align-items:center}
+.sw{display:grid;grid-template-columns:1fr 1fr;gap:3px 10px;font-size:12px;padding-bottom:10px}
+.sw i{display:inline-block;width:14px;height:14px;border-radius:3px;vertical-align:-3px;margin-right:5px;border:1px solid #0003}
+.note{font-size:12px;color:var(--mut);padding-bottom:10px}
+</style></head><body>
+<h1>🗺️ WorldBox Map Generator</h1>
+<div class="cv"><canvas id="cv" width="1024" height="512"></canvas></div>
+<div id="st">Press Generate.</div><progress id="pg" max="1" value="0"></progress>
+<div class="bar"><button class="p" id="go">Generate</button><button id="rnd">🎲 New seed</button><button id="save">Save PNG</button></div>
+
+<details open><summary>Size &amp; seed</summary><div id="g-size"></div>
+<div class="row"><label>Height</label><label style="font-size:13px"><input type="checkbox" id="lock" checked> Lock 2:1</label><input class="num" type="number" id="h" value="512" min="64" max="4096"></div>
+<div class="row"><label>Seed</label><span></span><input class="num" type="number" id="seed" value="1337"></div>
+<div class="note">Multiples of 64 convert to whole WorldBox chunks (the converter rounds to 64). Number boxes are editable.</div></details>
+
+<details><summary>Land shape</summary><div id="g-land"></div><div class="cks" id="c-land"></div><div class="note">Continents come from simulated tectonic plates: colliding plates raise mountain ranges, ocean–land subduction makes coastal ranges and island arcs, and pulling-apart zones sink into rifts.</div></details>
+<details open id="ed"><summary>✏️ Edit map</summary><div class="bar" id="tools"></div><div class="cks" id="c-ed"></div><div id="g-ed"></div><div class="sw2" id="eps"></div><div class="note" id="selp"></div>
+<div class="bar"><button id="undo">↩ Undo</button><button id="redo">↪ Redo</button></div><div class="note">Pick a tile, then tap the map. Bucket fills a connected area; Brush paints; Pick copies a tile from the map; Pan lets you scroll when zoomed in. Generating again replaces your edits.</div></details>
+<details open><summary>Beaches</summary><div class="cks" id="c-beach"></div><div id="g-beach"></div></details>
+<details open><summary>Lakes</summary><div class="cks" id="c-lake"></div><div id="g-lake"></div></details>
+<details><summary>Water &amp; shoreline</summary><div id="g-water"></div><div class="cks" id="c-water"></div>
+<div class="note">Shallow water is the only shoreline band. Medium and deep fade outward by distance from land.</div></details>
+<details><summary>Hills, mountains &amp; peaks</summary><div id="g-mt"></div><div class="cks" id="c-mt"></div>
+<div class="note">Percentages are of land area, nested: peaks ⊂ mountains ⊂ hills. Higher = darker.</div></details>
+<details><summary>Biomes</summary><div class="cks" id="c-bio"></div><div id="g-bio"></div>
+<div class="note">Forest = the darker “high” variant of each biome, scattered as texture patches. With every biome off, land uses plain soil.</div></details>
+<details><summary>WorldBox palette (hex)</summary><div class="sw" id="sw"></div></details>
+
+<script>
+const $=id=>document.getElementById(id),V=id=>+$(id).value,K=id=>$(id).checked;
+const SL={size:[['w','Width',128,4096,64,1024]],
+land:[['land','Land amount %',5,85,1,38],['scale','Coast detail scale',1,10,.1,2.5],['detail','Detail (octaves)',2,8,1,6],['rough','Coast roughness',30,70,1,50],['warp','Realistic warp',0,100,1,40],['edge','Ocean margin %',0,30,1,8],['pland','Polar land (both poles) %',0,100,1,30],['nc','Continents',2,12,1,6],['np','Tectonic plates',6,30,1,18]],
+water:[['shore','Shoreline width (tiles)',1,60,1,6],['shv','Shoreline variation %',0,100,1,40],['mid','Medium water width',0,200,1,28]],beach:[['sandw','Beach size (tiles)',1,30,1,3],['sandv','Beach variation %',0,100,1,40]],ed:[['bsz','Brush size (tiles)',1,80,1,8],['zm','Zoom',1,8,.5,1]],lake:[['lkamt','Lake amount %',0,100,1,30],['lksz','Lake size',1,10,.5,4],['lkshore','Lake shore width',1,20,1,6]],
+mt:[['hillp','Hills %',1,40,1,16],['mtp','Mountains %',0,25,.5,5],['sump','Peaks %',0,10,.1,1.1],['ms','Range scale',1,10,.1,4]],
+bio:[['fden','Forest density %',0,100,1,45],['fsc','Forest patch scale',2,30,1,10],['tb','Temperature bias',-30,30,1,0],['mb','Moisture bias',-30,30,1,0],['pol','Polar cap size %',0,50,1,22]]};
+const CK={land:[],water:[['ice','Polar sea ice',0]],beach:[['sand','Beaches',1]],ed:[['glob','Bucket replaces ALL matching tiles',0]],lake:[['lakes','Lakes',1],['lkdeep','Medium/deep lake centers',1]],
+mt:[['hillsOn','Hills',1],['mtOn','Mountains &amp; peaks',1],['snow','Snow caps',0]],
+bio:[['b0','Plains',1],['b1','Jungle',1],['b2','Savanna',1],['b3','Desert',1],['b4','Swamp',1],['b5','Permafrost',1],['forest','Forest texture',1]]};
+function sl(p,[id,lb,mn,mx,st,v]){const r=document.createElement('div');r.className='row';
+r.innerHTML=`<label>${lb}</label><input type=range id=${id}_r min=${mn} max=${mx} step=${st} value=${v}><input class=num type=number id=${id} min=${mn} max=${id=='w'?6144:mx} step=${st} value=${v}>`;
+$(p).appendChild(r);const a=$(id+'_r'),b=$(id);
+a.oninput=()=>{b.value=a.value;if(id=='w')lk()};b.onchange=()=>{a.value=b.value;if(id=='w')lk()}}
+for(const k in SL)SL[k].forEach(s=>sl('g-'+k,s));
+for(const k in CK)CK[k].forEach(([id,lb,on])=>$('c-'+k).insertAdjacentHTML('beforeend',`<label><input type=checkbox id=${id} ${on?'checked':''}> ${lb}</label>`));
+function lk(){if(K('lock'))$('h').value=Math.round(V('w')/2)}
+$('h').onchange=()=>{if(K('lock')){$('w').value=V('h')*2;$('w_r').value=V('w')}};
+$('lock').onchange=lk;
+const hx=h=>{const n=parseInt(h,16);return(0xFF000000|((n>>16)&255)|(n&0xFF00)|((n&255)<<16))>>>0};
+const PAL=[['Deep ocean','3370CC'],['Medium ocean','4084E2'],['Shallow water','55AEF0'],['Sand','F7E898'],['Snow sand','AFF5F1'],['Sea ice','A7D6F4'],['Hills','5B5E5C'],['Mountains','414545'],['Peaks','333333'],['Snow','FCFDFD'],['Snow hills','E2EDEC'],['Soil low / high','E2934B'],['','B66F3A'],['Plains','7EAF46'],['Plains forest','5F833C'],['Jungle','46A052'],['Jungle forest','1F7020'],['Savanna','F0B121'],['Savanna forest','CF931B'],['Desert','E8C76E'],['Desert forest','E1BA5A'],['Swamp','4D483E'],['Swamp forest','453E34'],['Permafrost','99BCDB'],['Permafrost forest','B4CFE5']];
+$('sw').innerHTML=PAL.map(([n,h])=>`<span><i style="background:#${h}"></i>${n||'&nbsp;'} #${h}</span>`).join('');
+const c={deep:hx('3370CC'),mid:hx('4084E2'),sh:hx('55AEF0'),sand:hx('F7E898'),ssand:hx('AFF5F1'),ice:hx('A7D6F4'),hill:hx('5B5E5C'),mtn:hx('414545'),sum:hx('333333'),snow:hx('FCFDFD'),shill:hx('E2EDEC'),sl:hx('E2934B'),sh2:hx('B66F3A')};
+const BIO=[['7EAF46','5F833C',.45,.6],['46A052','1F7020',.9,.85],['F0B121','CF931B',.8,.4],['E8C76E','E1BA5A',.85,.1],['4D483E','453E34',.6,.95],['99BCDB','B4CFE5',.1,.5]].map(b=>({l:hx(b[0]),h:hx(b[1]),t:b[2],m:b[3]}));
+// noise
+let P,R;const GX=[1,-1,1,-1,1,-1,0,0],GY=[1,1,-1,-1,0,0,1,-1];
+function seedNoise(s){let a=s>>>0;const r=()=>{a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296};
+const p=[...Array(256).keys()];for(let i=255;i>0;i--){const j=r()*(i+1)|0;[p[i],p[j]]=[p[j],p[i]]}P=new Uint8Array(512);for(let i=0;i<512;i++)P[i]=p[i&255];R=r}
+function n2(x,y){const xi=Math.floor(x),yi=Math.floor(y),xf=x-xi,yf=y-yi,X=xi&255,Y=yi&255;
+const a=P[P[X]+Y]&7,b=P[P[X+1]+Y]&7,c2=P[P[X]+Y+1]&7,d=P[P[X+1]+Y+1]&7;
+const u=xf*xf*xf*(xf*(xf*6-15)+10),v=yf*yf*yf*(yf*(yf*6-15)+10);
+const g1=GX[a]*xf+GY[a]*yf,g2=GX[b]*(xf-1)+GY[b]*yf,g3=GX[c2]*xf+GY[c2]*(yf-1),g4=GX[d]*(xf-1)+GY[d]*(yf-1);
+const l1=g1+u*(g2-g1),l2=g3+u*(g4-g3);return(l1+v*(l2-l1))*.7}
+function fbm(x,y,o,g){let s=0,a=1,f=1,m=0;for(;o--;){s+=a*n2(x*f,y*f);m+=a;a*=g;f*=2.03}return s/m}
+function rdg(x,y,o){let s=0,a=1,f=1,m=0;for(;o--;){const n=1-Math.abs(n2(x*f,y*f)*1.4);s+=a*n*n;m+=a;a*=.5;f*=2.1}return s/m}
+const sm=(a,b,x)=>{const t=Math.max(0,Math.min(1,(x-a)/(b-a)));return t*t*(3-2*t)};
+function dist(src,w,h){const D=new Float32Array(w*h),B=1.4142,M=Math.min;for(let i=0;i<D.length;i++)D[i]=src[i]?0:1e6;
+for(let y=0;y<h;y++)for(let x=0;x<w;x++){const i=y*w+x;let v=D[i];if(v){if(x)v=M(v,D[i-1]+1);if(y){v=M(v,D[i-w]+1);if(x)v=M(v,D[i-w-1]+B);if(x<w-1)v=M(v,D[i-w+1]+B)}D[i]=v}}
+for(let y=h-1;y>=0;y--)for(let x=w-1;x>=0;x--){const i=y*w+x;let v=D[i];if(v){if(x<w-1)v=M(v,D[i+1]+1);if(y<h-1){v=M(v,D[i+w]+1);if(x<w-1)v=M(v,D[i+w+1]+B);if(x)v=M(v,D[i+w-1]+B)}D[i]=v}}return D}
+function qt(a,mask,lo,hi,pct){if(pct<=0)return Infinity;const B=2048,H=new Uint32Array(B),k=(B-1)/(hi-lo);let n=0;
+for(let i=0;i<a.length;i++)if(!mask||mask[i]){H[Math.max(0,Math.min(B-1,((a[i]-lo)*k)|0))]++;n++}
+const need=n*pct/100;let s=0;for(let b=B-1;b>=0;b--){s+=H[b];if(s>=need)return lo+b/k}return lo}
+function tect(w,h,np,land,nc){nc=Math.max(1,Math.min(nc,np-1));const s=Math.max(1,Math.ceil(w/560)),cw=Math.ceil(w/s),ch=Math.ceil(h/s),asp=w/h,cp=Math.min(.85,Math.max(.12,land/100*1.05)),pl=[];
+for(let k=0;k<np;k++){let bx=0,by=0,bd=-1;for(let j=0;j<10;j++){const x=R()*asp,y=R();let m=9;for(const p of pl)m=Math.min(m,Math.hypot(x-p.x,y-p.y));if(m>bd){bd=m;bx=x;by=y}}const a=R()*6.283,sp=.4+R()*.6;pl.push({x:bx,y:by,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp,c:k<nc,o:(R()-.5)*.1})}
+if(!pl.some(p=>p.c))pl[0].c=true;if(pl.every(p=>p.c))pl[np-1].c=false;
+const B=new Float32Array(cw*ch),O=new Float32Array(cw*ch);
+for(let cy=0;cy<ch;cy++)for(let cx=0;cx<cw;cx++){let X=cx*s/h,Y=cy*s/h;const X0=X;X+=.34*fbm(X*1.6+11,Y*1.6+3,6,.55);Y+=.34*fbm(X0*1.6+5,Y*1.6+9,6,.55);
+let d1=9,d2=9,a=null,b=null;for(const p of pl){const d=Math.hypot(X-p.x,Y-p.y);if(d<d1){d2=d1;b=a;d1=d;a=p}else if(d<d2){d2=d;b=p}}
+const bd=(d2-d1)/2,ea=(a.c?.62:.3)+a.o,eb=(b.c?.62:.3)+b.o,t=sm(0,.06,bd);let e=(ea+eb)/2*(1-t)+ea*t;
+let dx=b.x-a.x,dy=b.y-a.y;const L2=Math.hypot(dx,dy)||1;dx/=L2;dy/=L2;const cv=((a.vx-b.vx)*dx+(a.vy-b.vy)*dy)/2,g=Math.exp(-(bd/.03)*(bd/.03));
+let o=0;if(cv>0){o=cv*g*(a.c&&b.c?1:(a.c||b.c)?(a.c?.8:.3):.35);e+=o*.3}else e+=cv*g*.08;
+B[cy*cw+cx]=e;O[cy*cw+cx]=o}
+return{B,O,cw,ch,s}}
+function bs(A,T,x,y){const fx=Math.max(0,Math.min(T.cw-1,x/T.s-.5)),fy=Math.max(0,Math.min(T.ch-1,y/T.s-.5)),x0=fx|0,y0=fy|0,x1=Math.min(x0+1,T.cw-1),y1=Math.min(y0+1,T.ch-1),tx=fx-x0,ty=fy-y0,w=T.cw;
+return(A[y0*w+x0]*(1-tx)+A[y0*w+x1]*tx)*(1-ty)+(A[y1*w+x0]*(1-tx)+A[y1*w+x1]*tx)*ty}
+let run=0,t0=0;const pg=$('pg'),st=$('st'),cv=$('cv');
+const yl=async(p,t)=>{if(performance.now()-t0>40){pg.value=p;await new Promise(r=>setTimeout(r));t0=performance.now();if(t!==run)throw 0}};
+async function gen(){const tok=++run;$('go').disabled=true;t0=performance.now();
+try{const w=Math.max(64,V('w')|0),h=Math.max(64,V('h')|0),N=w*h;seedNoise(V('seed'));const TP=tect(w,h,V('np')|0,V('land'),V('nc')|0);
+const sc=V('scale'),oct=V('detail')|0,gain=V('rough')/100,wp=V('warp')/100*.35,edge=V('edge')/100,pl=V('pland')/100*.5,E=new Float32Array(N);
+st.textContent='Shaping continents…';
+for(let y=0;y<h;y++){const v=y/h;for(let x=0;x<w;x++){const u=x/h;let a=u,b=v;
+if(wp){a+=wp*fbm(u*1.7+5.2,v*1.7+1.3,3,.5);b+=wp*fbm(u*1.7+9.7,v*1.7+8.3,3,.5)}
+let e=bs(TP.B,TP,x,y)+fbm(a*sc*3+3.1,b*sc*3+7.7,oct,gain)*.4;
+if(edge){const fx=Math.min(x,w-1-x)/(w*edge);if(fx<1)e=e*sm(0,1,fx)-(1-sm(0,1,fx))*.4}
+if(pl){const t=(Math.abs(v*2-1)-.78)/.2;if(t>0)e+=pl*Math.min(1,t)*sm(.35,.62,fbm(u*2.5+30,v*2.5+30,3,.5)*.5+.5)}
+E[y*w+x]=e}await yl(y/h*.4,tok)}
+const sea=qt(E,0,-.5,1.5,V('land')),L=new Uint8Array(N);for(let i=0;i<N;i++)L[i]=E[i]>=sea?1:0;
+st.textContent='Measuring shorelines…';await yl(.45,tok);
+const dL=dist(L,w,h);const W=L.map(x=>1-x);const dW=dist(W,w,h);
+const hOn=K('hillsOn'),mOn=K('mtOn'),ms=V('ms'),inlp=h*.05;
+st.textContent='Raising mountains…';
+for(let y=0;y<h;y++){const v=y/h;for(let x=0;x<w;x++){const i=y*w+x;if(!L[i]){E[i]=-9;continue}
+const u=x/h;let m=0;if(hOn||mOn){const T=fbm(u*ms*.35+40,v*ms*.35+40,2,.5)*.5+.5,q=fbm(u*ms*.9+3,v*ms*.9+9,3,.5)*.7,r=rdg(u*ms*1.6+q,v*ms*1.6+q*.7+fbm(u*ms+8,v*ms,2,.5)*.3,6);
+const o=bs(TP.O,TP,x,y)*(.15+1.3*sm(.3,.7,fbm(u*ms*.9+55,v*ms*.9+55,3,.5)*.5+.5));m=(o*(.12+1.5*r*r)+.1*r*r*(.2+.8*sm(.35,.65,T)))*(.55+.45*sm(0,inlp,dW[i]))+.06*(E[i]-sea)}E[i]=m}await yl(.5+y/h*.2,tok)}
+const tH=hOn?qt(E,L,0,1.5,V('hillp')):Infinity,tM=mOn?qt(E,L,0,1.5,V('mtp')):Infinity,tS=mOn?qt(E,L,0,1.5,V('sump')):Infinity;
+const act=BIO.filter((b,i)=>K('b'+i)&&i<5),perm=K('b5'),forest=K('forest'),fd=V('fden')/100,fs=V('fsc'),tb=V('tb')/100,mb=V('mb')/100,pol=V('pol')/100,
+sh=V('shore'),shv=V('shv')/100,mid=V('mid'),sandOn=K('sand'),sw=V('sandw'),sv=V('sandv')/100,lakeOn=K('lakes'),lkd=K('lkdeep'),thL=.64-V('lkamt')/100*.2,lf=16/V('lksz'),lkw=V('lkshore')/300,lkmin=(sandOn?sw*2.4:0)+4,ice=K('ice'),snow=K('snow'),th=.72-fd*.4;
+st.textContent='Painting tiles…';
+const img=new ImageData(w,h),o=new Uint32Array(img.data.buffer);
+for(let y=0;y<h;y++){const v=y/h,lat=Math.abs(v*2-1);for(let x=0;x<w;x++){const i=y*w+x,u=x/h;let col,ln;
+if(!L[i]){const d=dL[i],s=Math.max(1,sh*(1+shv*n2(u*14+60,v*14+60)*1.4));
+if(d<=s)col=(ice&&lat>1-pol*.9)?c.ice:c.sh;else col=d<=s+mid*(1+shv*.9*n2(u*6+80,v*6+80))?c.mid:c.deep}
+else{const m=E[i],pn=1.1*fbm(u*3.5+20,v*3.5+20,6,.55),pz=perm&&lat+pn>1-pol,cold=pol>0&&lat+pn>1-pol;
+if(m>=tS)col=snow?c.snow:c.sum;else if(m>=tM)col=(snow&&cold)?c.snow:c.mtn;else if(m>=tH)col=(snow&&cold)?c.shill:c.hill;
+else if(lakeOn&&dW[i]>lkmin&&(ln=fbm(u*lf+130,v*lf+130,4,.55)*.5+.5)>thL){const d=ln-thL;col=d<lkw?(cold&&ice?c.ice:c.sh):(lkd&&d>lkw*4?c.deep:c.mid)}
+else if(sandOn&&dW[i]<=Math.max(1,sw*(1+sv*n2(u*16+110,v*16+110)*1.4)))col=pz?c.ssand:c.sand;
+else{const dw=dW[i],mo=Math.max(0,Math.min(1,.5+2.3*fbm(u*3+70,v*3+70,5,.55)+mb+.2*(1-sm(0,h*.08,dw))));let b=null;
+if(pz)b=BIO[5];else if(act.length){const tp=Math.max(0,Math.min(1,1-lat*1.2+tb+.95*fbm(u*2.4+50,v*2.4+50,5,.55)-m*.3));let bd=9;for(const q of act){const d=(q.t-tp)*(q.t-tp)+(q.m-mo)*(q.m-mo);if(d<bd){bd=d;b=q}}}
+if(!b)col=forest&&fbm(u*fs*2+90,v*fs*2+90,3,.55)*.5+.5+(mo-.5)*.4>th?c.sh2:c.sl;
+else{const f=forest&&fbm(u*fs*2+90,v*fs*2+90,3,.55)*.5+.5+(mo-.5)*.4>th+(b===BIO[3]?.12:0);col=f?b.h:b.l}}}
+o[i]=col}await yl(.7+y/h*.3,tok)}
+cv.width=w;cv.height=h;cv.getContext('2d').putImageData(img,0,0);IM=img;O32=o;UN=[];RE=[];pg.value=1;
+st.textContent=`${w}×${h} px = ${(w/64).toFixed(w%64?1:0)}×${(h/64).toFixed(h%64?1:0)} WorldBox chunks · seed ${V('seed')}`+(w%64||h%64?' · use multiples of 64 for exact chunks':'')
+}catch(e){if(e)st.textContent='Error: '+e.message}$('go').disabled=false}
+$('go').onclick=()=>setTimeout(gen,20);
+$('rnd').onclick=()=>{$('seed').value=Math.random()*1e9|0;gen()};
+$('save').onclick=async()=>{try{const d=window.claude&&await claude.use('downloads');if(!d){st.textContent='Saving isn’t available here — long-press or right-click the map.';return}
+const b=await new Promise(r=>cv.toBlob(r,'image/png'));await d.save({filename:`worldbox-map-${cv.width}x${cv.height}.png`,data:b})}catch(e){if(e&&e.code!='declined')st.textContent='Save failed: '+(e.message||e.code)}};
+/*ED*/
+let IM,O32,UN=[],RE=[],SEL=0,TOOL='bucket',drag=0,lx=0,ly=0;
+const EPAL=PAL.map(([n,h])=>[n||'Soil forest',h]),eps=$('eps');
+EPAL.forEach(([n,h])=>{const b=document.createElement('button');b.style.background='#'+h;b.title=n;b.onclick=()=>{SEL=hx(h);[...eps.children].forEach(x=>x.classList.toggle('on',x===b));$('selp').textContent='Selected: '+n+' #'+h};eps.appendChild(b)});
+eps.children[13].click();
+[['bucket','🪣 Bucket'],['brush','🖌️ Brush'],['pick','💧 Pick'],['pan','✋ Pan']].forEach(([k,l])=>{const b=document.createElement('button');b.textContent=l;b.onclick=()=>{TOOL=k;[...$('tools').children].forEach(x=>x.classList.toggle('p',x===b));cv.style.touchAction=k=='pan'?'auto':'none'};$('tools').appendChild(b);if(k=='bucket')b.click()});
+const zoom=()=>{cv.style.width=V('zm')*100+'%'};['zm','zm_r'].forEach(i=>['input','change'].forEach(v=>$(i).addEventListener(v,zoom)));
+const pos=e=>{const r=cv.getBoundingClientRect();return[Math.floor((e.clientX-r.left)*cv.width/r.width),Math.floor((e.clientY-r.top)*cv.height/r.height)]};
+const snap=()=>{UN.push(O32.slice());if(UN.length>(O32.length>4e6?3:8))UN.shift();RE=[]};
+const put=(x,y,w,h)=>cv.getContext('2d').putImageData(IM,0,0,x,y,w,h);
+function dot(x,y,r){const W=cv.width,H=cv.height,q=r*r+.01,k=Math.ceil(r);for(let j=Math.max(0,y-k);j<=Math.min(H-1,y+k);j++)for(let i=Math.max(0,x-k);i<=Math.min(W-1,x+k);i++)if((i-x)*(i-x)+(j-y)*(j-y)<=q)O32[j*W+i]=SEL}
+function seg(x0,y0,x1,y1){const r=V('bsz')/2,k=Math.ceil(r)+1,n=Math.max(1,Math.ceil(Math.hypot(x1-x0,y1-y0)/Math.max(1,r/2)));for(let t=0;t<=n;t++)dot(Math.round(x0+(x1-x0)*t/n),Math.round(y0+(y1-y0)*t/n),r);
+const X=Math.max(0,Math.min(x0,x1)-k),Y=Math.max(0,Math.min(y0,y1)-k);put(X,Y,Math.min(cv.width-X,Math.abs(x1-x0)+2*k+1),Math.min(cv.height-Y,Math.abs(y1-y0)+2*k+1))}
+function fill(x,y){const W=cv.width,H=cv.height,t=O32[y*W+x];if(t===SEL)return;snap();
+if(K('glob')){for(let i=0;i<O32.length;i++)if(O32[i]===t)O32[i]=SEL}
+else{const st=[x,y];while(st.length){const yy=st.pop(),xx=st.pop();if(O32[yy*W+xx]!==t)continue;let a=xx,b=xx;while(a>0&&O32[yy*W+a-1]===t)a--;while(b<W-1&&O32[yy*W+b+1]===t)b++;for(let i=a;i<=b;i++)O32[yy*W+i]=SEL;
+for(const ny of[yy-1,yy+1])if(ny>=0&&ny<H){let on=false;for(let i=a;i<=b;i++){const m=O32[ny*W+i]===t;if(m&&!on)st.push(i,ny);on=m}}}}
+put(0,0,W,H)}
+cv.onpointerdown=e=>{if(!IM||TOOL=='pan')return;const[x,y]=pos(e);if(x<0||y<0||x>=cv.width||y>=cv.height)return;
+if(TOOL=='pick'){const v=O32[y*cv.width+x],i=EPAL.findIndex(p=>hx(p[1])===v);if(i>=0)eps.children[i].click();return}
+if(TOOL=='bucket'){fill(x,y);return}
+snap();drag=1;lx=x;ly=y;try{cv.setPointerCapture(e.pointerId)}catch(_){}seg(x,y,x,y)};
+cv.onpointermove=e=>{if(!drag)return;const[x,y]=pos(e);seg(lx,ly,x,y);lx=x;ly=y};
+cv.onpointerup=cv.onpointercancel=()=>{drag=0};
+$('undo').onclick=()=>{if(!UN.length)return;RE.push(O32.slice());O32.set(UN.pop());put(0,0,cv.width,cv.height)};
+$('redo').onclick=()=>{if(!RE.length)return;UN.push(O32.slice());O32.set(RE.pop());put(0,0,cv.width,cv.height)};
+/*END*/
+st.textContent='Press Generate to make a map.';
+</script></body></html>
